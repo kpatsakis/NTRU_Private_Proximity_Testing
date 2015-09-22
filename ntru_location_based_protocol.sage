@@ -1,201 +1,194 @@
-from random import randint, shuffle
 from time import time
+R.<x> = ZZ['x'];
 
-R.<x> = QQ['x'];
+class NTRUEncrypt(object):
 
-#set the parameters
-p=3
-q=2048
-SEC=128
-if SEC==128:
-	n=439
-	D1=9;D2=8;D3=5
-	Dg=146;Dm=112
-elif SEC==192:
-	n=593
-	D1=10;D2=10;D3=8
-	Dg=197;Dm=158
-else:
-	n=743
-	D1=11;D2=11;D3=15
-	Dg=247;Dm=204
+	def sample(self,NN, o,mo):
+	    s=[1]*o+[-1]*mo+[0]*(NN-o-mo)
+	    shuffle(s)
+	    return R(s)
 
-#returns a polynomial of degree NN with coefficients in [-B,B]
-def sample(NN, B):
-    s=[randint(-B, B) for i in range(NN)]
-    poly=R(s)
-    return poly
+	def __pn__(self,d1,d2,d3):
+		a=ZZ.random_element(2*d1, self.n-d2)
+		p1=self.sample(a, d1, d1)
+		p2=self.sample(self.n-a, d2, d2)
+		p3=self.sample(self.n, d3, d3)
+		poly=p1*p2+p3
+		return poly
 
-def sample2(NN, B,o,mo):
-    oo=[1 for i in range(o)]
-    mmoo=[-1 for i in range(mo)]
-    zz=[0 for i in range(NN-o-mo)]
-    s=oo+mmoo+zz
-    shuffle(s)
-    poly=R(s)
-    return poly
+	#reduces the coefficients of polynomial f modulo pp
+	#and "fixes" them so that they belong to [-pp/2,pp/2]
+	def modCoeffs(self,f,pp):
+	    clist=f.list()
+	    p2=pp/2
+	    for i in range(len(clist)):
+	        clist[i] = clist[i]%pp
+	        if clist[i]>p2:
+	            clist[i]-=pp
+	    return R(clist)
 
-def pn(NN,d1,d2,d3):
-	a=randint(2*d1, NN-d2)
-	p1=sample2(a, 1, d1, d1)
-	p2=sample2(NN-a, 1, d2, d2)
-	p3=sample2(NN, 1, d3, d3)
-	poly=p1*p2+p3
-	return poly
+	def encrypt(self,h,m):
+		s=self.sample(self.n, self.Dm, self.Dm-1)
+		c=s*h+m
+		c=c%(x^self.n-1)
+		c=self.modCoeffs(c,self.q)
+		return c
 
-#reduces the coefficients of polynomial f modulo pp
-#and "fixes" them so that they belong to [-pp/2,pp/2]
-def modCoeffs(f, pp):
-    clist=f.list()
-    p2=pp/2
-    for i in range(len(clist)):
-        clist[i] = clist[i]%pp
-        if clist[i]>p2:
-            clist[i]-=pp
-    return R(clist)
+	def decrypt(self,c,Priv):
+		f,fp=Priv
+		a=f*c
+		a=a%(x^self.n-1)
+		a=self.modCoeffs(a,self.q)
+		a=a*fp
+		a=a%(x^self.n-1)
+		a=self.modCoeffs(a,self.p)
+		return a
 
-def inv_poly_mod2(poly,NNN):
-	k=0;b=1;c=0;
-	f=poly;g=x^NNN-1
-	f=modCoeffs(f, 2)
-	res=False
-	while True:
-		while f(0)==0 and not f.is_zero():
-			f=f.shift(-1)
-			c=c*x
-			c=modCoeffs(c, 2)
-			k+=1
-		if f.is_one():
-			e=NNN-k
-			while e<0:
-				e+=NNN
-			retval= x^e*b
-			res=True
-			break
-		elif f.degree()==-1 or f.is_zero() or f==0:
-			break
-		if f.degree()<g.degree():
-			f,g=g,f
-			b,c=c,b
-		f=f+g
-		b=b+c
-		f=modCoeffs(f, 2)
-		c=modCoeffs(c, 2)
-	if res:
-		retval=retval%(x^NNN-1)
-		retval=modCoeffs(retval, 2)
-		return True, retval
-	else:
-		return False,0
-
-def inv_poly_mod3(poly,NNN):
-	k=0;b=1;c=0;
-	f=poly;g=x^NNN-1
-	res=False
-	while True:
-		while f(0)==0 and not f.is_zero():
-			f=f.shift(-1)
-			c=c*x
-			c=modCoeffs(c, 3)
-			k+=1
-		if f.is_one():
-			e=NNN-k
-			while e<0:
-				e+=NNN
-			retval= x^e*b
-			res=True
-			break
-		elif (-f).is_one():
-			e=NNN-k
-			while e<0:
-				e+=NNN
-			retval= -x^e*b
-			res=True
-			break
-		elif f.degree()==-1 or f.is_zero() or f==0:
-			break
-		if f.degree()<g.degree():
-			f,g=g,f
-			b,c=c,b
-		if f(0)==g(0):
-			f=f-g
-			b=b-c
-		else:
+	def __inv_poly_mod2__(self,poly):
+		k=0;b=1;c=0*x;
+		f=poly;g=x^self.n-1
+		f=self.modCoeffs(f, 2)
+		res=False
+		while True:
+			while f(0)==0 and not f.is_zero():
+				f=f.shift(-1)
+				c=c.shift(1)
+				c=self.modCoeffs(c, 2)
+				k+=1
+			if f.is_one():
+				e=(-k)%self.n
+				retval= x^e*b
+				res=True
+				break
+			elif f.degree()==-1 or f.is_zero():
+				break
+			if f.degree()<g.degree():
+				f,g=g,f
+				b,c=c,b
 			f=f+g
 			b=b+c
-		f=modCoeffs(f, 3)
-		c=modCoeffs(c, 3)
-	if res:
-		retval=retval%(x^NNN-1)
-		retval=modCoeffs(retval, 3)
-		return True, retval
-	else:
-		return False,0
+			f=self.modCoeffs(f, 2)
+			c=self.modCoeffs(c, 2)
+		if res:
+			retval=retval%(x^self.n-1)
+			retval=self.modCoeffs(retval, 2)
+			return True, retval
+		else:
+			return False,0
 
-def inv_poly_mod_prime_pow(poly,r,NNN):
-	res,b=inv_poly_mod2(poly,NNN)
-	if res:
-		qr=2
-		while qr<2^r:
-			qr=qr^2
-			b=b*(2-poly*b)
-			b=b%(x^NNN-1)
-			b=modCoeffs(b, 32)
-		return True,b
-	else:
-		return False,0
+	def __inv_poly_mod3__(self,poly):
+		k=0;b=1;c=0*x;
+		f=poly;g=x^self.n-1
+		res=False
+		while True:
+			while f(0)==0 and not f.is_zero():
+				f=f.shift(-1)
+				c=c.shift(1)
+				k+=1
+			if f.is_one():
+				e=(-k)%self.n
+				retval= x^e*b
+				res=True
+				break
+			elif (-f).is_one():
+				e=(-k)%self.n
+				retval= -x^e*b
+				res=True
+				break
+			elif f.degree()==-1 or f.is_zero():
+				break
+			if f.degree()<g.degree():
+				f,g=g,f
+				b,c=c,b
+			if f(0)==g(0):
+				f=f-g
+				b=b-c
+			else:
+				f=f+g
+				b=b+c
+			f=self.modCoeffs(f, 3)
+			c=self.modCoeffs(c, 3)
+		if res:
+			retval=retval%(x^self.n-1)
+			retval=self.modCoeffs(retval, 3)
+			return True, retval
+		else:
+			return False,0
 
-def gen_priv_key(deg):
-	res=False
-	pw=log(q,2)
-	while (res==False):
-		poly=pn(deg,D1,D2,D3)
-		poly=1+3*poly
-		ppInv=inv_poly_mod3(poly, deg)[1]
-		res,pqInv=inv_poly_mod_prime_pow(poly,pw, deg)
-	return poly,ppInv,pqInv
+	def inv_poly_mod_prime_pow(self,poly):
+		res,b=self.__inv_poly_mod2__(poly)
+		if res:
+			qr=2
+			while qr<self.q:
+				qr=qr^2
+				b=b*(2-poly*b)
+				b=b%(x^self.n-1)
+				b=self.modCoeffs(b, self.q)
+			return True,b
+		else:
+			return False,0
 
-pw=log(q,2)
-#Generate the key pair
-f,fp,fq=gen_priv_key(n)
-res=False
-while res==False:
-	g=sample2(n, 1, Dg+1, Dg)
-	res,gInv=inv_poly_mod_prime_pow(g,pw, n)
-h=p*g*fq
-h=h%(x^n-1)
-h=modCoeffs(h,q)
-hinv=gInv*f
-hinv=hinv%(x^n-1)
-hinv=modCoeffs(hinv,q)
+	def __gen_priv_key__(self):
+		res=False
+		while (res==False):
+			poly=self.__pn__(self.D1,self.D2,self.D3)
+			poly=1+2*poly
+			ppInv=self.__inv_poly_mod3__(poly)[1]
+			res,pqInv=self.inv_poly_mod_prime_pow(poly)
+		return poly,ppInv,pqInv
 
-tA=0
+	def gen_keys(self):
+		f,fp,fq=self.__gen_priv_key__()
+		g=self.sample(n,self.Dg,self.Dg-1)
+		h=self.p*g*fq
+		h=h%(x^self.n-1)
+		h=self.modCoeffs(h,self.q)
+		return h,(f,fp)
 
-#alice
-res=False
+	def __init__(self, SECLEVEL):
+		self.p=3
+		self.q=2048
+		if SECLEVEL==128:
+			self.n=439
+			self.D1=9;self.D2=8;self.D3=5
+			self.Dg=146;self.Dm=112
+		elif SECLEVEL==192:
+			self.n=593
+			self.D1=10;self.D2=10;self.D3=8
+			self.Dg=197;self.Dm=158
+		else:
+			self.n=743
+			self.D1=11;self.D2=11;self.D3=15
+			self.Dg=247;self.Dm=204
+
+ntru=NTRUEncrypt(128)
+n=ntru.n; dm=ntru.Dm
+m=ntru.sample(n,dm,dm-1)
 ts=time()
-#generate an invertible "noise" polynomial
-while res==False:
-	s=sample(n-1, q)
-	s=q*s+1
-	res,sInv=inv_poly_mod_prime_pow(s,pw, n)
+h,Priv=ntru.gen_keys()
+
+#Alice
+ts=time()
+fnd=False
+while not fnd:
+	s=2*ntru.sample(n, dm, dm-1)+1
+	fnd,sinv=ntru.inv_poly_mod_prime_pow(s)
 c=s*h+m
 c=c%(x^n-1)
-c= modCoeffs(c,q)
-tA=time()-ts
+c=ntru.modCoeffs(c,ntru.q)
+ta= time()-ts
 
-#bob
+#Bob
 ts=time()
-r=sample2(n, 1, Dm, Dm)
-c=r*(c-m)
-c=c%(x^n-1)
-tB=time()-ts
+r=ntru.sample(n, dm, dm-1)
+cc=r*(c-m)
+cc=cc%(x^n-1)
+cc=ntru.modCoeffs(cc,ntru.q)
+tb= time()-ts
 
+ts=time()
 #alice
-ts=time()
-c=c*sInv*gInv*f
-c=c%(x^n-1)
-c=modCoeffs(c,q)
-tA+=time()-ts
-
-print "Alice:",tA,"Bob",tB, "\nTotal:",tA+tB
+cc=cc*sinv
+res=ntru.decrypt(cc, Priv)
+ta+= time()-ts
+print ta,tb,ta+tb
